@@ -57,10 +57,16 @@ db.serialize(() => {
 
 // Função para buscar dados do contato na API do BotConversa
 async function buscarDadosBotConversa(contactId) {
-    // Endpoints possíveis baseados na documentação
+    const workspaceId = '126527'; // Extraído da URL da conversa
+    
+    // Endpoints possíveis baseados na estrutura da URL
     const endpoints = [
         `/subscribers/${contactId}`,
-        `/contacts/${contactId}`
+        `/contacts/${contactId}`,
+        `/${workspaceId}/subscribers/${contactId}`,
+        `/${workspaceId}/contacts/${contactId}`,
+        `/workspaces/${workspaceId}/subscribers/${contactId}`,
+        `/workspaces/${workspaceId}/contacts/${contactId}`
     ];
     
     for (const endpoint of endpoints) {
@@ -97,7 +103,7 @@ async function buscarDadosBotConversa(contactId) {
                 };
             } else {
                 const errorText = await response.text();
-                console.log(`❌ Erro no endpoint ${endpoint}: ${response.status} - ${errorText}`);
+                console.log(`❌ Erro no endpoint ${endpoint}: ${response.status} - ${errorText.substring(0, 200)}`);
             }
             
         } catch (error) {
