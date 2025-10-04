@@ -1,0 +1,6 @@
+# Render.com Build Script
+buildCommand: npm install
+startCommand: node server.js
+envVars:
+  - key: NODE_ENV
+    value: production
