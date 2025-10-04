@@ -17,6 +17,10 @@ if (isProduction) {
 app.use(cors());
 app.use(express.json());
 
+// Token da API do BotConversa
+const BOTCONVERSA_TOKEN = '0f569d5a-bc37-46e3-b2c9-0823a214604c';
+const BOTCONVERSA_API_BASE = 'https://app.botconversa.com/api/v1';
+
 // Inicializar banco de dados
 let db;
 
@@ -44,7 +48,109 @@ db.serialize(() => {
     )`);
 });
 
-// Webhook para receber dados do BotConversa
+// Função para buscar dados do contato na API do BotConversa
+async function buscarDadosBotConversa(contactId) {
+    try {
+        const response = await fetch(`${BOTCONVERSA_API_BASE}/contacts/${contactId}`, {
+            method: 'GET',
+            headers: {
+                'Authorization': `Bearer ${BOTCONVERSA_TOKEN}`,
+                'Content-Type': 'application/json'
+            }
+        });
+        
+        if (!response.ok) {
+            throw new Error(`Erro na API BotConversa: ${response.status} - ${response.statusText}`);
+        }
+        
+        const dados = await response.json();
+        console.log('📞 Dados recebidos da API BotConversa:', dados);
+        
+        return {
+            nome: dados.name || 'Nome não informado',
+            telefone: dados.phone || 'Telefone não informado',
+            email: dados.email || null,
+            dados_originais: dados
+        };
+        
+    } catch (error) {
+        console.error('❌ Erro ao buscar dados do BotConversa:', error);
+        return null;
+    }
+}
+
+// Webhook MELHORADO para receber contact_id do BotConversa
+app.post('/webhook/botconversa-v2', async (req, res) => {
+    try {
+        console.log('📥 Webhook v2 recebido:', req.body);
+        
+        const { contact_id, acao, fluxo, dados_extras } = req.body;
+        
+        // Validar se contact_id foi fornecido
+        if (!contact_id) {
+            return res.status(400).json({ 
+                erro: 'contact_id é obrigatório para buscar dados do contato' 
+            });
+        }
+        
+        // Buscar dados reais na API do BotConversa
+        console.log(`🔍 Buscando dados do contato ${contact_id} na API...`);
+        const dadosContato = await buscarDadosBotConversa(contact_id);
+        
+        if (!dadosContato) {
+            return res.status(500).json({ 
+                erro: 'Não foi possível buscar dados do contato na API do BotConversa' 
+            });
+        }
+        
+        // Inserir no banco de dados com dados reais
+        const stmt = db.prepare(`
+            INSERT INTO clientes (nome, telefone, fluxo_origem, observacoes)
+            VALUES (?, ?, ?, ?)
+        `);
+        
+        const observacoes = {
+            acao: acao || 'webhook_v2',
+            email: dadosContato.email,
+            dados_extras: dados_extras,
+            contact_id: contact_id,
+            dados_api_completos: dadosContato.dados_originais
+        };
+        
+        stmt.run([
+            dadosContato.nome,
+            dadosContato.telefone,
+            fluxo || 'api_botconversa',
+            JSON.stringify(observacoes)
+        ], function(err) {
+            if (err) {
+                console.error('❌ Erro ao inserir cliente:', err);
+                return res.status(500).json({ erro: 'Erro interno do servidor' });
+            }
+            
+            console.log(`✅ Cliente ${dadosContato.nome} cadastrado com sucesso (ID: ${this.lastID})`);
+            
+            res.json({ 
+                sucesso: true, 
+                cliente_id: this.lastID,
+                mensagem: 'Cliente cadastrado com dados reais da API BotConversa',
+                dados_capturados: {
+                    nome: dadosContato.nome,
+                    telefone: dadosContato.telefone,
+                    email: dadosContato.email
+                }
+            });
+        });
+        
+        stmt.finalize();
+        
+    } catch (error) {
+        console.error('❌ Erro no webhook v2:', error);
+        res.status(500).json({ erro: 'Erro interno do servidor: ' + error.message });
+    }
+});
+
+// Webhook original (mantido para compatibilidade)
 app.post('/webhook/botconversa', (req, res) => {
     try {
         const { nome, telefone, fluxo, dados_adicionais } = req.body;
@@ -87,6 +193,32 @@ app.post('/webhook/botconversa', (req, res) => {
     } catch (error) {
         console.error('Erro no webhook:', error);
         res.status(500).json({ erro: 'Erro interno do servidor' });
+    }
+});
+
+// Endpoint para testar a API do BotConversa
+app.get('/api/test-botconversa/:contactId', async (req, res) => {
+    try {
+        const { contactId } = req.params;
+        console.log(`🧪 Testando API BotConversa para contato ${contactId}`);
+        
+        const dados = await buscarDadosBotConversa(contactId);
+        
+        if (!dados) {
+            return res.status(404).json({ 
+                erro: 'Não foi possível buscar dados do contato' 
+            });
+        }
+        
+        res.json({ 
+            sucesso: true,
+            contact_id: contactId,
+            dados: dados
+        });
+        
+    } catch (error) {
+        console.error('❌ Erro no teste da API:', error);
+        res.status(500).json({ erro: error.message });
     }
 });
 
