@@ -19,7 +19,14 @@ app.use(express.json());
 
 // Token da API do BotConversa
 const BOTCONVERSA_TOKEN = '0f569d5a-bc37-46e3-b2c9-0823a214604c';
-const BOTCONVERSA_API_BASE = 'https://app.botconversa.com/api/v1';
+// URLs baseadas na documentação oficial
+const BOTCONVERSA_API_URLS = [
+    'https://backend.botconversa.com.br/api/v1',
+    'https://app.botconversa.com/api/v1', 
+    'https://api.botconversa.com/v1', 
+    'https://app.botconversa.com.br/api/v1'
+];
+const BOTCONVERSA_API_BASE = BOTCONVERSA_API_URLS[0]; // Usando a URL oficial primeiro
 
 // Inicializar banco de dados
 let db;
@@ -50,33 +57,56 @@ db.serialize(() => {
 
 // Função para buscar dados do contato na API do BotConversa
 async function buscarDadosBotConversa(contactId) {
-    try {
-        const response = await fetch(`${BOTCONVERSA_API_BASE}/contacts/${contactId}`, {
-            method: 'GET',
-            headers: {
-                'Authorization': `Bearer ${BOTCONVERSA_TOKEN}`,
-                'Content-Type': 'application/json'
+    // Endpoints possíveis baseados na documentação
+    const endpoints = [
+        `/subscribers/${contactId}`,
+        `/contacts/${contactId}`
+    ];
+    
+    for (const endpoint of endpoints) {
+        try {
+            const url = `${BOTCONVERSA_API_BASE}${endpoint}`;
+            console.log(`🔍 Tentando endpoint: ${url}`);
+            console.log(`🔑 Token: ${BOTCONVERSA_TOKEN.substring(0, 8)}...`);
+            
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${BOTCONVERSA_TOKEN}`,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            console.log(`📊 Status: ${response.status} ${response.statusText}`);
+            
+            if (response.ok) {
+                const responseText = await response.text();
+                console.log(`📝 Resposta bruta: ${responseText}`);
+                
+                const dados = JSON.parse(responseText);
+                console.log('✅ Dados encontrados:', dados);
+                
+                // Mapear campos conforme documentação
+                return {
+                    nome: dados.name || dados.firstName + (dados.lastName ? ` ${dados.lastName}` : '') || 'Nome não informado',
+                    telefone: dados.phone || 'Telefone não informado',
+                    email: dados.email || null,
+                    dados_originais: dados,
+                    endpoint_usado: endpoint
+                };
+            } else {
+                const errorText = await response.text();
+                console.log(`❌ Erro no endpoint ${endpoint}: ${response.status} - ${errorText}`);
             }
-        });
-        
-        if (!response.ok) {
-            throw new Error(`Erro na API BotConversa: ${response.status} - ${response.statusText}`);
+            
+        } catch (error) {
+            console.error(`❌ Erro no endpoint ${endpoint}:`, error.message);
         }
-        
-        const dados = await response.json();
-        console.log('📞 Dados recebidos da API BotConversa:', dados);
-        
-        return {
-            nome: dados.name || 'Nome não informado',
-            telefone: dados.phone || 'Telefone não informado',
-            email: dados.email || null,
-            dados_originais: dados
-        };
-        
-    } catch (error) {
-        console.error('❌ Erro ao buscar dados do BotConversa:', error);
-        return null;
     }
+    
+    console.error('❌ Nenhum endpoint funcionou para o contactId:', contactId);
+    return null;
 }
 
 // Webhook MELHORADO para receber contact_id do BotConversa
@@ -206,7 +236,10 @@ app.get('/api/test-botconversa/:contactId', async (req, res) => {
         
         if (!dados) {
             return res.status(404).json({ 
-                erro: 'Não foi possível buscar dados do contato' 
+                erro: 'Não foi possível buscar dados do contato',
+                contactId: contactId,
+                token_usado: BOTCONVERSA_TOKEN.substring(0, 8) + '...',
+                url_base: BOTCONVERSA_API_BASE
             });
         }
         
@@ -218,8 +251,67 @@ app.get('/api/test-botconversa/:contactId', async (req, res) => {
         
     } catch (error) {
         console.error('❌ Erro no teste da API:', error);
-        res.status(500).json({ erro: error.message });
+        res.status(500).json({ 
+            erro: error.message,
+            stack: error.stack,
+            contactId: req.params.contactId
+        });
     }
+});
+
+// Endpoint para testar URLs alternativas da API
+app.get('/api/debug-urls/:contactId', async (req, res) => {
+    const { contactId } = req.params;
+    const resultados = [];
+    const endpoints = ['/subscribers/', '/contacts/'];
+    
+    for (const baseUrl of BOTCONVERSA_API_URLS) {
+        for (const endpoint of endpoints) {
+            try {
+                const fullUrl = `${baseUrl}${endpoint}${contactId}`;
+                console.log(`🔍 Testando: ${fullUrl}`);
+                
+                const response = await fetch(fullUrl, {
+                    method: 'GET',
+                    headers: {
+                        'Authorization': `Bearer ${BOTCONVERSA_TOKEN}`,
+                        'Accept': 'application/json',
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const responseText = await response.text();
+                
+                resultados.push({
+                    url: fullUrl,
+                    status: response.status,
+                    statusText: response.statusText,
+                    success: response.ok,
+                    response: responseText.substring(0, 300) + (responseText.length > 300 ? '...' : ''),
+                    headers: Object.fromEntries(response.headers.entries())
+                });
+                
+                // Se encontrou sucesso, para por aqui
+                if (response.ok) {
+                    console.log(`✅ Sucesso encontrado em: ${fullUrl}`);
+                    break;
+                }
+                
+            } catch (error) {
+                resultados.push({
+                    url: `${baseUrl}${endpoint}${contactId}`,
+                    erro: error.message
+                });
+            }
+        }
+    }
+    
+    res.json({
+        contact_id: contactId,
+        token: BOTCONVERSA_TOKEN.substring(0, 8) + '...',
+        swagger_url: 'https://backend.botconversa.com.br/swagger',
+        testes: resultados
+    });
 });
 
 // API para o painel - listar clientes
