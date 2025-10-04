@@ -314,6 +314,65 @@ app.get('/api/debug-urls/:contactId', async (req, res) => {
     });
 });
 
+// Endpoint para testar autenticação geral da API
+app.get('/api/test-auth', async (req, res) => {
+    const baseUrl = 'https://backend.botconversa.com.br/api/v1';
+    const endpoints = [
+        '/me',
+        '/profile', 
+        '/account',
+        '/users/me',
+        '/contacts',
+        '/subscribers',
+        '/conversations'
+    ];
+    
+    const resultados = [];
+    
+    for (const endpoint of endpoints) {
+        try {
+            const fullUrl = `${baseUrl}${endpoint}`;
+            console.log(`🔍 Testando endpoint: ${fullUrl}`);
+            
+            const response = await fetch(fullUrl, {
+                method: 'GET',
+                headers: {
+                    'Authorization': `Bearer ${BOTCONVERSA_TOKEN}`,
+                    'Accept': 'application/json',
+                    'Content-Type': 'application/json'
+                }
+            });
+            
+            const responseText = await response.text();
+            
+            resultados.push({
+                endpoint: endpoint,
+                url: fullUrl,
+                status: response.status,
+                statusText: response.statusText,
+                success: response.ok,
+                response: responseText.substring(0, 500),
+                headers: {
+                    'content-type': response.headers.get('content-type'),
+                    'server': response.headers.get('server')
+                }
+            });
+            
+        } catch (error) {
+            resultados.push({
+                endpoint: endpoint,
+                erro: error.message
+            });
+        }
+    }
+    
+    res.json({
+        token: BOTCONVERSA_TOKEN.substring(0, 8) + '...',
+        swagger_url: 'https://backend.botconversa.com.br/swagger',
+        testes_auth: resultados
+    });
+});
+
 // API para o painel - listar clientes
 app.get('/api/clientes', (req, res) => {
     const { page = 1, limit = 50, busca, status, fluxo } = req.query;
