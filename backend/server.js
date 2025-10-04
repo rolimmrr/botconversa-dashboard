@@ -7,7 +7,9 @@ const app = express();
 const PORT = process.env.PORT || 3001;
 
 // Configuração para produção
-if (process.env.NODE_ENV === 'production') {
+const isProduction = process.env.NODE_ENV === 'production' || process.env.RENDER;
+
+if (isProduction) {
     app.set('trust proxy', 1);
 }
 
@@ -16,8 +18,18 @@ app.use(cors());
 app.use(express.json());
 
 // Inicializar banco de dados
-const dbPath = path.join(__dirname, '..', 'database', 'clientes.db');
-const db = new sqlite3.Database(dbPath);
+let db;
+
+if (isProduction) {
+    // Em produção, usar banco em memória
+    db = new sqlite3.Database(':memory:');
+    console.log('📂 Usando banco de dados em memória (produção)');
+} else {
+    // Em desenvolvimento, usar arquivo
+    const dbPath = path.join(__dirname, '..', 'database', 'clientes.db');
+    db = new sqlite3.Database(dbPath);
+    console.log('📂 Usando banco de dados em arquivo (desenvolvimento)');
+}
 
 // Criar tabela se não existir
 db.serialize(() => {
